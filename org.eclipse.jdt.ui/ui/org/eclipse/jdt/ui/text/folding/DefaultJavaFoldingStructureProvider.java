@@ -721,6 +721,8 @@ public class DefaultJavaFoldingStructureProvider implements IJavaFoldingStructur
 		}
 	}
 
+	boolean includelastLine = false;
+
 	/* context and listeners */
 	private JavaEditor fEditor;
 	private ProjectionListener fProjectionListener;
@@ -1018,8 +1020,8 @@ public class DefaultJavaFoldingStructureProvider implements IJavaFoldingStructur
 	/**
 	 * Computes the folding structure for a given {@link IJavaElement java element}. Computed
 	 * projection annotations are
-	 * {@link DefaultJavaFoldingStructureProvider.FoldingStructureComputationContext#addProjectionRange(DefaultJavaFoldingStructureProvider.JavaProjectionAnnotation, Position) added}
-	 * to the computation context.
+	 * {@link DefaultJavaFoldingStructureProvider.FoldingStructureComputationContext#addProjectionRange(DefaultJavaFoldingStructureProvider.JavaProjectionAnnotation, Position)
+	 * added} to the computation context.
 	 * <p>
 	 * Subclasses may extend or replace. The default implementation creates projection annotations
 	 * for the following elements:
@@ -1027,21 +1029,21 @@ public class DefaultJavaFoldingStructureProvider implements IJavaFoldingStructur
 	 * <ul>
 	 * <li>true members (not for top-level types)</li>
 	 * <li>the javadoc comments of any member</li>
-	 * <li>header comments (javadoc or multi-line comments appearing before the first type's
-	 * javadoc or before the package or import declarations).</li>
+	 * <li>header comments (javadoc or multi-line comments appearing before the first type's javadoc
+	 * or before the package or import declarations).</li>
 	 * </ul>
 	 *
 	 * @param element the java element to compute the folding structure for
 	 * @param ctx the computation context
 	 */
 	protected void computeFoldingStructure(IJavaElement element, FoldingStructureComputationContext ctx) {
-
 		boolean collapse= false;
 		boolean collapseCode= true;
 		switch (element.getElementType()) {
 
 			case IJavaElement.IMPORT_CONTAINER:
 				collapse= ctx.collapseImportContainer();
+				includelastLine= true;
 				break;
 			case IJavaElement.TYPE:
 				collapseCode= isInnerType((IType) element) && !isAnonymousEnum((IType) element);
@@ -1062,6 +1064,7 @@ public class DefaultJavaFoldingStructureProvider implements IJavaFoldingStructur
 			for (int i= 0; i < regions.length - 1; i++) {
 				IRegion normalized= alignRegion(regions[i], ctx);
 				if (normalized != null) {
+					includelastLine= true;
 					Position position= createCommentPosition(normalized);
 					if (position != null) {
 						boolean commentCollapse;
@@ -1078,7 +1081,14 @@ public class DefaultJavaFoldingStructureProvider implements IJavaFoldingStructur
 			if (collapseCode) {
 				IRegion normalized= alignRegion(regions[regions.length - 1], ctx);
 				if (normalized != null) {
-					Position position= element instanceof IMember ? createMemberPosition(normalized, (IMember) element) : createCommentPosition(normalized);
+					Position position;
+					if (element instanceof IMember) {
+						position= createMemberPosition(normalized, (IMember) element);
+					} else {
+						includelastLine= true;
+						position= createCommentPosition(normalized);
+					}
+
 					if (position != null)
 						ctx.addProjectionRange(new JavaProjectionAnnotation(collapse, element, false), position);
 				}
@@ -1271,6 +1281,7 @@ public class DefaultJavaFoldingStructureProvider implements IJavaFoldingStructur
 	 * @return a region equal or greater than <code>region</code> that is aligned with line
 	 *         offsets, <code>null</code> if the region is too small to be foldable (e.g. covers
 	 *         only one line)
+	 * @since 3.34
 	 */
 	protected final IRegion alignRegion(IRegion region, FoldingStructureComputationContext ctx) {
 		if (region == null)
@@ -1279,23 +1290,22 @@ public class DefaultJavaFoldingStructureProvider implements IJavaFoldingStructur
 		IDocument document= ctx.getDocument();
 
 		try {
-
 			int start= document.getLineOfOffset(region.getOffset());
-			int end= document.getLineOfOffset(region.getOffset() + region.getLength());
+			int end= document.getLineOfOffset(region.getOffset() - 1 + region.getLength());
 			if (start >= end)
 				return null;
-
 			int offset= document.getLineOffset(start);
 			int endOffset;
-			if (document.getNumberOfLines() > end + 1)
+			if (includelastLine) {
 				endOffset= document.getLineOffset(end + 1);
-			else
-				endOffset= document.getLineOffset(end) + document.getLineLength(end);
+				includelastLine = false;
+			}
+			else {
+				endOffset= document.getLineOffset(end);
+			}
 
 			return new Region(offset, endOffset - offset);
-
 		} catch (BadLocationException x) {
-			// concurrent modification
 			return null;
 		}
 	}
